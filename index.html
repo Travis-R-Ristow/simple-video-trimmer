@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fast Video Trimmer</title>
+    <style>
+      :root {
+        --bg: #1e1e2e;
+        --panel: #27293d;
+        --panel-2: #2f3147;
+        --text: #e4e4ef;
+        --muted: #9a9ab0;
+        --accent: #7c6cff;
+        --accent-hover: #8f80ff;
+        --border: #3a3c55;
+        --ok: #3fb27f;
+        --err: #e06c75;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 18px 22px 28px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 4px;
+        font-weight: 600;
+      }
+      .app-header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 16px;
+      }
+      .app-header img {
+        width: 52px;
+        height: 52px;
+        object-fit: contain;
+        flex: 0 0 auto;
+      }
+      .app-header h1 {
+        margin: 0 0 2px;
+      }
+      .app-header .sub {
+        margin: 0;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 13px;
+        margin-bottom: 16px;
+      }
+
+      .drop {
+        border: 2px dashed var(--border);
+        border-radius: 12px;
+        padding: 26px;
+        text-align: center;
+        color: var(--muted);
+        cursor: pointer;
+        transition:
+          border-color 0.15s,
+          background 0.15s;
+        margin-bottom: 16px;
+      }
+      .drop:hover,
+      .drop.drag {
+        border-color: var(--accent);
+        background: var(--panel);
+        color: var(--text);
+      }
+      .drop strong {
+        color: var(--text);
+      }
+
+      video {
+        width: 100%;
+        border-radius: 10px;
+        background: #000;
+        margin-bottom: 12px;
+        display: none;
+        max-height: 60vh;
+        object-fit: contain;
+      }
+
+      /* --- Timeline / trim bar --- */
+      .timeline-wrap {
+        display: none;
+        margin: 4px 0 20px;
+      }
+      .timeline {
+        position: relative;
+        height: 58px;
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        user-select: none;
+        touch-action: none;
+        cursor: pointer;
+        overflow: visible;
+      }
+      .tl-seglayer {
+        position: absolute;
+        inset: 0;
+        border-radius: 10px;
+      }
+      .tl-segment {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        background: rgba(124, 108, 255, 0.16);
+        border-top: 2px solid var(--accent);
+        border-bottom: 2px solid var(--accent);
+        cursor: grab;
+      }
+      .tl-segment.moving {
+        cursor: grabbing;
+      }
+      .tl-segment.selected {
+        background: rgba(124, 108, 255, 0.32);
+        box-shadow: inset 0 0 0 1px var(--accent);
+      }
+      .tl-seg-num {
+        position: absolute;
+        top: 4px;
+        left: 8px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #fff;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+        pointer-events: none;
+      }
+      .tl-playhead {
+        position: absolute;
+        top: -5px;
+        bottom: -5px;
+        width: 2px;
+        background: #fff;
+        pointer-events: none;
+        box-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
+        z-index: 5;
+      }
+      .tl-handle {
+        position: absolute;
+        top: 50%;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        cursor: ew-resize;
+        z-index: 4;
+        border: 3px solid #fff;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+        transition:
+          box-shadow 0.12s,
+          transform 0.08s;
+      }
+      .tl-handle:hover,
+      .tl-handle.dragging {
+        transform: translate(-50%, -50%) scale(1.18);
+      }
+      .tl-handle.start {
+        left: 0;
+        background: var(--ok);
+      }
+      .tl-handle.end {
+        left: 100%;
+        background: var(--err);
+      }
+      .tl-legend {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 10px;
+      }
+      .tl-legend .dot {
+        display: inline-block;
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        margin-right: 6px;
+        vertical-align: -1px;
+      }
+      .tl-legend .dot.green {
+        background: var(--ok);
+      }
+      .tl-legend .dot.red {
+        background: var(--err);
+      }
+      .tl-legend .sel {
+        margin-left: auto;
+        font-variant-numeric: tabular-nums;
+        color: var(--text);
+      }
+
+      /* --- Segment list panel --- */
+      .segments {
+        margin: 4px 0 16px;
+      }
+      .segments-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+      .segments-title {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .segments-total {
+        font-size: 12px;
+        color: var(--text);
+        font-variant-numeric: tabular-nums;
+      }
+      .seg-add {
+        margin-left: auto;
+      }
+      .seg-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .seg-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 9px 12px;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+      .seg-row.selected {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px var(--accent);
+      }
+      .seg-row .seg-idx {
+        width: 22px;
+        height: 22px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--accent);
+        color: #fff;
+        font-weight: 600;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .seg-row .seg-range {
+        color: var(--text);
+      }
+      .seg-row .seg-range .arrow {
+        color: var(--muted);
+        margin: 0 6px;
+      }
+      .seg-row .seg-dur {
+        color: var(--muted);
+        margin-left: auto;
+      }
+      .seg-row .seg-del {
+        flex: 0 0 auto;
+        padding: 4px 9px;
+        font-size: 13px;
+        line-height: 1;
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--err);
+      }
+      .seg-row .seg-del:hover {
+        background: var(--err);
+        color: #fff;
+        border-color: var(--err);
+      }
+
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+      }
+      .field {
+        flex: 1 1 180px;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 5px;
+      }
+      input[type='text'] {
+        width: 100%;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 9px 10px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-variant-numeric: tabular-nums;
+      }
+      input[type='text']:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+
+      button {
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        padding: 9px 14px;
+        border-radius: 8px;
+        font-size: 13px;
+        cursor: pointer;
+        transition:
+          background 0.15s,
+          border-color 0.15s;
+      }
+      button:hover:not(:disabled) {
+        background: var(--border);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        font-weight: 600;
+        padding: 11px 22px;
+        font-size: 15px;
+      }
+      button.primary:hover:not(:disabled) {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .card.hidden {
+        display: none;
+      }
+
+      .setbtns {
+        display: flex;
+        gap: 8px;
+        margin: 4px 0 0;
+      }
+      .mode {
+        display: flex;
+        gap: 16px;
+        margin-top: 14px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .mode label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0;
+        cursor: pointer;
+        color: var(--text);
+      }
+
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-top: 16px;
+      }
+      .actions button.active {
+        background: var(--ok);
+        border-color: var(--ok);
+        color: #fff;
+      }
+
+      .progress-wrap {
+        flex: 1;
+        height: 10px;
+        background: var(--panel-2);
+        border-radius: 6px;
+        overflow: hidden;
+        display: none;
+      }
+      .progress-bar {
+        height: 100%;
+        width: 0%;
+        background: var(--accent);
+        transition: width 0.15s;
+      }
+
+      .status {
+        font-size: 13px;
+        margin-top: 12px;
+        min-height: 18px;
+      }
+      .status.ok {
+        color: var(--ok);
+      }
+      .status.err {
+        color: var(--err);
+        white-space: pre-wrap;
+        font-family: monospace;
+        font-size: 12px;
+      }
+      .status a {
+        color: var(--accent);
+        cursor: pointer;
+        text-decoration: underline;
+        margin-left: 8px;
+      }
+
+      .filename {
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 10px;
+        word-break: break-all;
+      }
+      .filename strong {
+        color: var(--text);
+      }
+      .hint {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+      .shortcuts-bar {
+        margin-top: 4px;
+        padding: 14px 18px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+      .sc-title {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 12px;
+      }
+      .sc-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 18px 28px;
+        justify-items: start;
+      }
+      @media (max-width: 900px) {
+        .sc-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      .sc {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        color: var(--text);
+      }
+      .sc .keys {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        flex: 0 0 auto;
+      }
+      .sc .plus {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 0 1px;
+      }
+      kbd {
+        display: inline-block;
+        min-width: 20px;
+        padding: 3px 7px;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        text-align: center;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        border-radius: 6px;
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-header">
+      <img src="FastTrim.png" alt="FastTrim logo" />
+      <div>
+        <h1>Fast Video Trimmer</h1>
+        <div class="sub">
+          Trim or cut mp4, dvr, mkv, mov and more — fast and lossless.
+        </div>
+      </div>
+    </div>
+
+    <div id="drop" class="drop">
+      <strong>Click to choose a video</strong> or drag &amp; drop it here
+    </div>
+
+    <div id="editor" class="card hidden">
+      <div class="filename">
+        File: <strong id="fname">—</strong> <span id="dur"></span>
+      </div>
+      <video id="player" controls></video>
+
+      <div id="timelineWrap" class="timeline-wrap">
+        <div id="timeline" class="timeline">
+          <div id="segLayer" class="tl-seglayer"></div>
+          <div id="playhead" class="tl-playhead"></div>
+        </div>
+        <div class="tl-legend">
+          <span><span class="dot green"></span>Start</span>
+          <span><span class="dot red"></span>End</span>
+          <span class="sel" id="selLabel"></span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="startInput"
+            >Selected segment — Start (HH:MM:SS.mmm)</label
+          >
+          <input type="text" id="startInput" value="00:00:00.000" />
+          <div class="setbtns">
+            <button id="setStart">Set start to current (S)</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="endInput">Selected segment — End (HH:MM:SS.mmm)</label>
+          <input type="text" id="endInput" value="00:00:00.000" />
+          <div class="setbtns">
+            <button id="setEnd">Set end to current (E)</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="segments">
+        <div class="segments-head">
+          <span class="segments-title">Segments</span>
+          <span id="totalLabel" class="segments-total"></span>
+          <button id="addSegBtn" class="seg-add">+ Add segment (A)</button>
+        </div>
+        <div id="segList" class="seg-list"></div>
+        <div class="hint">
+          Segments play and export in time order and are merged into one output.
+        </div>
+      </div>
+
+      <div class="mode">
+        <span>Cut mode:</span>
+        <label
+          ><input type="radio" name="mode" value="copy" checked /> Fast
+          (lossless)</label
+        >
+        <label
+          ><input type="radio" name="mode" value="reencode" /> Precise
+          (re-encode)</label
+        >
+      </div>
+      <div class="hint">
+        Fast mode copies streams without re-encoding — instant, but cuts snap to
+        the nearest keyframe. Precise mode is frame-accurate but slower.
+      </div>
+
+      <div class="actions">
+        <button id="previewBtn" disabled>▶ Preview result</button>
+        <button id="trimBtn" class="primary" disabled>Trim &amp; Save</button>
+        <button id="gifBtn" disabled>Save as GIF</button>
+        <div id="progressWrap" class="progress-wrap">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+      </div>
+
+      <div id="status" class="status"></div>
+    </div>
+
+    <div class="shortcuts-bar">
+      <div class="sc-title">Keyboard Shortcuts</div>
+      <div class="sc-grid">
+        <div class="sc">
+          <span class="keys"><kbd>Space</kbd></span> Play / pause
+        </div>
+        <div class="sc">
+          <span class="keys"><kbd>←</kbd><kbd>→</kbd></span> Step 1 frame
+        </div>
+        <div class="sc">
+          <span class="keys"
+            ><kbd>Ctrl</kbd><span class="plus">+</span><kbd>←</kbd
+            ><kbd>→</kbd></span
+          >
+          Step 10 frames
+        </div>
+        <div class="sc">
+          <span class="keys"><kbd>S</kbd></span> Set start
+        </div>
+        <div class="sc">
+          <span class="keys"><kbd>E</kbd></span> Set end
+        </div>
+        <div class="sc">
+          <span class="keys"><kbd>A</kbd></span> Add segment
+        </div>
+        <div class="sc">
+          <span class="keys"><kbd>Del</kbd></span> Delete segment
+        </div>
+        <div class="sc">
+          <span class="keys"><kbd>P</kbd></span> Preview result
+        </div>
+        <div class="sc">
+          <span class="keys"
+            ><kbd>Ctrl</kbd><span class="plus">+</span><kbd>S</kbd></span
+          >
+          Trim &amp; save
+        </div>
+        <div class="sc">
+          <span class="keys"
+            ><kbd>Ctrl</kbd><span class="plus">+</span><kbd>O</kbd></span
+          >
+          Open file
+        </div>
+        <div class="sc">
+          <span class="keys"
+            ><kbd>Ctrl</kbd><span class="plus">+</span><kbd>N</kbd></span
+          >
+          New window
+        </div>
+      </div>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

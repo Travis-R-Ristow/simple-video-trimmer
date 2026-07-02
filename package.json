@@ -1,0 +1,35 @@
+{
+  "name": "video-trimmer",
+  "version": "1.0.0",
+  "description": "A simple desktop app to trim/cut video files (mp4, dvr, etc.)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.example.videotrimmer",
+    "productName": "Fast Video Trimmer",
+    "files": [
+      "**/*",
+      "!dist/**"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**",
+      "node_modules/ffprobe-static/**"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}
