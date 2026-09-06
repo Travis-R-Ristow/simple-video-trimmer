@@ -68,8 +68,10 @@ builds and publishes the installer:
 Under the hood this is just `npm version <bump>` + `git push --follow-tags`.
 The workflow ([.github/workflows/release.yml](.github/workflows/release.yml))
 runs `npm ci` and `npm run publish` on a Windows runner using the built-in
-`GITHUB_TOKEN`, then attaches the installer, `latest.yml` and `.blockmap` to the
-matching GitHub Release. No secrets to configure.
+`GITHUB_TOKEN`, attaches the installer, `latest.yml` and `.blockmap` to the
+matching GitHub Release, and then promotes that release from draft to published
+(via `gh release edit --draft=false --latest`) so it's downloadable and the
+updater can see it. No secrets to configure, and nothing to click.
 
 ### Publish manually (fallback)
 
@@ -81,6 +83,10 @@ npm version patch                 # or edit "version" in package.json
 $env:GH_TOKEN = "ghp_yourtoken"   # a token with repo access
 npm run publish
 ```
+
+> `npm run publish` on its own leaves the GitHub Release as a **draft** — open
+> the Releases page and click **Publish release** afterward. (The CI workflow
+> does this automatically.)
 
 > Keep tokens out of source control — never commit them (`.gh-token` and `.env` are gitignored).
 

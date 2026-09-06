@@ -499,6 +499,9 @@ function renderClips() {
   clipsTotal.textContent = n
     ? n + ' clip' + (n !== 1 ? 's' : '') + ' · merged ' + secondsToTime(grand)
     : '';
+
+  // The dropzone is only for the empty state; hide it once clips exist.
+  drop.style.display = n ? 'none' : '';
 }
 
 // Normalisation target for merges: the first clip's size and frame rate.
@@ -694,19 +697,33 @@ async function openFiles() {
 drop.addEventListener('click', openFiles);
 addClipBtn.addEventListener('click', openFiles);
 
-['dragenter', 'dragover'].forEach((ev) =>
-  drop.addEventListener(ev, (e) => {
-    e.preventDefault();
-    drop.classList.add('drag');
-  })
-);
-['dragleave', 'drop'].forEach((ev) =>
-  drop.addEventListener(ev, (e) => {
-    e.preventDefault();
-    drop.classList.remove('drag');
-  })
-);
-drop.addEventListener('drop', (e) => {
+// Accept dropped files anywhere in the window so drag-and-drop still works
+// once the dropzone is hidden (i.e. after the first clip is loaded).
+function dragHasFiles(e) {
+  return (
+    e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')
+  );
+}
+
+let dragDepth = 0;
+document.addEventListener('dragenter', (e) => {
+  if (!dragHasFiles(e)) return;
+  e.preventDefault();
+  dragDepth++;
+  document.body.classList.add('dragging');
+});
+document.addEventListener('dragover', (e) => {
+  if (dragHasFiles(e)) e.preventDefault();
+});
+document.addEventListener('dragleave', (e) => {
+  if (!dragHasFiles(e)) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) document.body.classList.remove('dragging');
+});
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  document.body.classList.remove('dragging');
   const paths = [];
   for (const f of e.dataTransfer.files) {
     const p = f.path || window.api.getPathForFile(f);

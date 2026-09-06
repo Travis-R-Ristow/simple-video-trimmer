@@ -92,13 +92,19 @@
         margin-bottom: 16px;
       }
       .drop:hover,
-      .drop.drag {
+      .drop.drag,
+      body.dragging .drop {
         border-color: var(--accent);
         background: var(--panel);
         color: var(--text);
       }
       .drop strong {
         color: var(--text);
+      }
+      /* Highlight the editor while dragging files over the window. */
+      body.dragging #editor {
+        outline: 2px dashed var(--accent);
+        outline-offset: 4px;
       }
 
       video {
