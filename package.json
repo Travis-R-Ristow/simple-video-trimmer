@@ -1,6 +1,6 @@
 {
   "name": "video-trimmer",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A simple desktop app to trim/cut video files (mp4, dvr, etc.)",
   "main": "main.js",
   "scripts": {
