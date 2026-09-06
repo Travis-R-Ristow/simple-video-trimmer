@@ -56,6 +56,29 @@
         margin-bottom: 16px;
       }
 
+      .updates {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 12px;
+        color: var(--muted);
+        align-self: flex-start;
+      }
+      .app-version {
+        font-variant-numeric: tabular-nums;
+      }
+      .update-btn {
+        padding: 6px 12px;
+        font-size: 12px;
+      }
+      .update-msg.ok {
+        color: var(--ok);
+      }
+      .update-msg.err {
+        color: var(--err);
+      }
+
       .drop {
         border: 2px dashed var(--border);
         border-radius: 12px;
@@ -280,6 +303,99 @@
         color: var(--err);
       }
       .seg-row .seg-del:hover {
+        background: var(--err);
+        color: #fff;
+        border-color: var(--err);
+      }
+
+      /* --- Clips (playlist) --- */
+      .clips {
+        margin: 4px 0 16px;
+      }
+      .clips-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+      .clips-title {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .clips-total {
+        font-size: 12px;
+        color: var(--text);
+        font-variant-numeric: tabular-nums;
+      }
+      .clip-add {
+        margin-left: auto;
+      }
+      .clip-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .clip-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 9px 12px;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .clip-row.active {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px var(--accent);
+      }
+      .clip-row .clip-idx {
+        width: 22px;
+        height: 22px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--accent);
+        color: #fff;
+        font-weight: 600;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .clip-meta {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+      .clip-name {
+        font-size: 13px;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .clip-sub {
+        font-size: 11px;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+        margin-top: 2px;
+      }
+      .clip-ctrls {
+        display: flex;
+        gap: 6px;
+        flex: 0 0 auto;
+      }
+      .clip-btn {
+        padding: 4px 9px;
+        font-size: 13px;
+        line-height: 1;
+      }
+      .clip-btn.clip-del {
+        color: var(--err);
+      }
+      .clip-btn.clip-del:hover:not(:disabled) {
         background: var(--err);
         color: #fff;
         border-color: var(--err);
@@ -511,13 +627,31 @@
           Trim or cut mp4, dvr, mkv, mov and more — fast and lossless.
         </div>
       </div>
+      <div class="updates" id="updates">
+        <span class="app-version" id="appVersion"></span>
+        <button id="updateBtn" class="update-btn">Check for updates</button>
+        <span class="update-msg" id="updateMsg"></span>
+      </div>
     </div>
 
     <div id="drop" class="drop">
-      <strong>Click to choose a video</strong> or drag &amp; drop it here
+      <strong>Click to choose video(s)</strong> or drag &amp; drop them here
     </div>
 
     <div id="editor" class="card hidden">
+      <div class="clips">
+        <div class="clips-head">
+          <span class="clips-title">Clips</span>
+          <span id="clipsTotal" class="clips-total"></span>
+          <button id="addClipBtn" class="clip-add">+ Add clips</button>
+        </div>
+        <div id="clipList" class="clip-list"></div>
+        <div class="hint">
+          Clips merge top to bottom into one file. Select a clip to trim it —
+          each keeps its own segments. Use ↑ ↓ to reorder, × to remove.
+        </div>
+      </div>
+
       <div class="filename">
         File: <strong id="fname">—</strong> <span id="dur"></span>
       </div>
@@ -585,7 +719,7 @@
       <div class="actions">
         <button id="previewBtn" disabled>▶ Preview result</button>
         <button id="trimBtn" class="primary" disabled>Trim &amp; Save</button>
-        <button id="gifBtn" disabled>Save as GIF</button>
+        <button id="gifBtn" disabled>Trim &amp; Save as GIF</button>
         <div id="progressWrap" class="progress-wrap">
           <div id="progressBar" class="progress-bar"></div>
         </div>

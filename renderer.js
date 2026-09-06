@@ -28,12 +28,23 @@ const segList = document.getElementById('segList');
 const addSegBtn = document.getElementById('addSegBtn');
 const totalLabel = document.getElementById('totalLabel');
 
+// Clip (playlist) elements
+const clipList = document.getElementById('clipList');
+const addClipBtn = document.getElementById('addClipBtn');
+const clipsTotal = document.getElementById('clipsTotal');
+
 const MIN_SEG = 0.05; // minimum segment length in seconds
 
 let currentInput = null;
 let duration = 0;
 let fps = 30; // default until probed
 let hasAudio = true;
+
+// Playlist of clips. Each clip owns its own file + segments; the timeline and
+// segment editor operate on the active clip. Export merges all clips in order.
+let clips = []; // [{ id, path, name, duration, fps, hasAudio, width, height, segments, selectedId, segCounter }]
+let activeClipId = null;
+let clipCounter = 0;
 
 // Segments are kept sorted by start time (chronological, model B).
 let segments = []; // [{ id, start, end }]
@@ -66,55 +77,7 @@ function timeToSeconds(str) {
   return h * 3600 + m * 60 + s;
 }
 
-// --- Load a file ----------------------------------------------------------
-
-async function loadFile(filePath) {
-  currentInput = filePath;
-  fname.textContent = filePath;
-  statusEl.textContent = '';
-  statusEl.className = 'status';
-
-  // Load into the preview player.
-  player.src = 'file://' + filePath.replace(/\\/g, '/').replace(/^\/*/, '/');
-  player.style.display = 'block';
-  editor.classList.remove('hidden');
-
-  // Probe duration via ffprobe (reliable for odd containers like .dvr).
-  const info = await window.api.probe(filePath);
-  if (info && info.duration) {
-    duration = info.duration;
-  } else {
-    duration = 0;
-  }
-  fps = info && info.fps && info.fps > 0 ? info.fps : 30;
-  hasAudio = info && typeof info.hasAudio === 'boolean' ? info.hasAudio : true;
-
-  player.onloadedmetadata = () => {
-    if ((!duration || duration === 0) && isFinite(player.duration)) {
-      duration = player.duration;
-    }
-    finalizeLoad();
-  };
-
-  // In case metadata is already loaded or the container isn't previewable.
-  setTimeout(() => {
-    if (duration > 0 || isFinite(player.duration)) finalizeLoad();
-  }, 800);
-}
-
-function finalizeLoad() {
-  const d = duration || (isFinite(player.duration) ? player.duration : 0);
-  duration = d;
-  durLabel.textContent = d ? `(duration ${secondsToTime(d)})` : '';
-  // Start with a single segment covering the whole video (matches old behavior).
-  segCounter = 0;
-  segments = [makeSegment(0, d)];
-  selectedId = segments[0].id;
-  timelineWrap.style.display = d > 0 ? 'block' : 'none';
-  setControlsEnabled(true);
-  updateAll();
-  fitWindowToContent();
-}
+// --- Load ------------------------------------------------------------------
 
 function makeSegment(start, end) {
   return { id: ++segCounter, start, end };
@@ -318,12 +281,234 @@ function updateTotals() {
     n + ' segment' + (n !== 1 ? 's' : '') + ' · total ' + secondsToTime(total);
 }
 
+// --- Clips (playlist) -----------------------------------------------------
+
 function updateAll() {
+  snapshotActive();
   renderTimeline();
   renderSegList();
   updateSelectedInputs();
   updateTotals();
   updatePlayhead();
+  renderClips();
+}
+
+function fileUrl(p) {
+  return 'file://' + p.replace(/\\/g, '/').replace(/^\/*/, '/');
+}
+
+function baseName(p) {
+  return p.replace(/^.*[\\/]/, '');
+}
+
+// Probe each file and append it to the playlist as a clip with one full-length
+// segment. Activates the first newly added clip if none is active yet.
+async function addClips(paths) {
+  let firstNew = null;
+  for (const p of paths) {
+    const info = await window.api.probe(p);
+    const d = info && info.duration ? info.duration : 0;
+    const clip = {
+      id: ++clipCounter,
+      path: p,
+      name: baseName(p),
+      duration: d,
+      fps: info && info.fps > 0 ? info.fps : 30,
+      hasAudio:
+        info && typeof info.hasAudio === 'boolean' ? info.hasAudio : true,
+      width: info && info.width ? info.width : 0,
+      height: info && info.height ? info.height : 0,
+      segCounter: 0,
+      segments: [],
+      selectedId: null
+    };
+    const seg = { id: ++clip.segCounter, start: 0, end: d };
+    clip.segments = [seg];
+    clip.selectedId = seg.id;
+    clips.push(clip);
+    if (firstNew === null) firstNew = clip.id;
+  }
+  if (activeClipId === null && firstNew !== null) {
+    activate(firstNew);
+  } else {
+    snapshotActive();
+    renderClips();
+  }
+}
+
+// Persist the live editing state back into the active clip object.
+function snapshotActive() {
+  const clip = clips.find((c) => c.id === activeClipId);
+  if (!clip) return;
+  clip.segments = segments;
+  clip.selectedId = selectedId;
+  clip.segCounter = segCounter;
+  clip.duration = duration;
+  clip.fps = fps;
+  clip.hasAudio = hasAudio;
+}
+
+// Make a clip active: load it into the player and the segment editor.
+function activate(clipId) {
+  snapshotActive();
+  const clip = clips.find((c) => c.id === clipId);
+  if (!clip) return;
+  activeClipId = clip.id;
+  currentInput = clip.path;
+  duration = clip.duration;
+  fps = clip.fps;
+  hasAudio = clip.hasAudio;
+  segments = clip.segments;
+  selectedId = clip.selectedId;
+  segCounter = clip.segCounter;
+
+  fname.textContent = clip.path;
+  durLabel.textContent = duration
+    ? `(duration ${secondsToTime(duration)})`
+    : '';
+  player.src = fileUrl(clip.path);
+  player.style.display = 'block';
+  editor.classList.remove('hidden');
+  timelineWrap.style.display = duration > 0 ? 'block' : 'none';
+  setControlsEnabled(true);
+
+  // If the probe couldn't read a duration, fall back to the player's metadata.
+  player.onloadedmetadata = () => {
+    if ((!duration || duration === 0) && isFinite(player.duration)) {
+      duration = player.duration;
+      segments = [makeSegment(0, duration)];
+      selectedId = segments[0].id;
+      durLabel.textContent = `(duration ${secondsToTime(duration)})`;
+      timelineWrap.style.display = 'block';
+      updateAll();
+    }
+  };
+
+  updateAll();
+  fitWindowToContent();
+}
+
+function removeClip(id) {
+  const i = clips.findIndex((c) => c.id === id);
+  if (i < 0) return;
+  clips.splice(i, 1);
+  if (activeClipId === id) {
+    activeClipId = null;
+    if (clips.length) activate(clips[Math.min(i, clips.length - 1)].id);
+    else resetEditor();
+  } else {
+    renderClips();
+  }
+}
+
+function moveClip(id, dir) {
+  const i = clips.findIndex((c) => c.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= clips.length) return;
+  const tmp = clips[i];
+  clips[i] = clips[j];
+  clips[j] = tmp;
+  renderClips();
+}
+
+function resetEditor() {
+  if (previewing) stopPreview();
+  editor.classList.add('hidden');
+  currentInput = null;
+  duration = 0;
+  segments = [];
+  selectedId = null;
+  renderClips();
+}
+
+// Render the playlist panel.
+function renderClips() {
+  clipList.innerHTML = '';
+  clips.forEach((c, idx) => {
+    const row = document.createElement('div');
+    row.className = 'clip-row' + (c.id === activeClipId ? ' active' : '');
+    row.dataset.id = c.id;
+
+    const badge = document.createElement('div');
+    badge.className = 'clip-idx';
+    badge.textContent = idx + 1;
+
+    const meta = document.createElement('div');
+    meta.className = 'clip-meta';
+    const name = document.createElement('div');
+    name.className = 'clip-name';
+    name.textContent = c.name;
+    name.title = c.path;
+    const sub = document.createElement('div');
+    sub.className = 'clip-sub';
+    const trimmed = c.segments.reduce((a, s) => a + (s.end - s.start), 0);
+    const nSeg = c.segments.length;
+    sub.textContent =
+      nSeg +
+      ' segment' +
+      (nSeg !== 1 ? 's' : '') +
+      ' · ' +
+      secondsToTime(trimmed);
+    meta.appendChild(name);
+    meta.appendChild(sub);
+
+    const ctrls = document.createElement('div');
+    ctrls.className = 'clip-ctrls';
+    const up = document.createElement('button');
+    up.className = 'clip-btn';
+    up.textContent = '↑';
+    up.title = 'Move up';
+    up.disabled = idx === 0;
+    up.addEventListener('click', (e) => {
+      e.stopPropagation();
+      moveClip(c.id, -1);
+    });
+    const down = document.createElement('button');
+    down.className = 'clip-btn';
+    down.textContent = '↓';
+    down.title = 'Move down';
+    down.disabled = idx === clips.length - 1;
+    down.addEventListener('click', (e) => {
+      e.stopPropagation();
+      moveClip(c.id, 1);
+    });
+    const del = document.createElement('button');
+    del.className = 'clip-btn clip-del';
+    del.textContent = '×';
+    del.title = 'Remove clip';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeClip(c.id);
+    });
+    ctrls.appendChild(up);
+    ctrls.appendChild(down);
+    ctrls.appendChild(del);
+
+    row.appendChild(badge);
+    row.appendChild(meta);
+    row.appendChild(ctrls);
+    row.addEventListener('click', () => activate(c.id));
+    clipList.appendChild(row);
+  });
+
+  const grand = clips.reduce(
+    (t, c) => t + c.segments.reduce((a, s) => a + (s.end - s.start), 0),
+    0
+  );
+  const n = clips.length;
+  clipsTotal.textContent = n
+    ? n + ' clip' + (n !== 1 ? 's' : '') + ' · merged ' + secondsToTime(grand)
+    : '';
+}
+
+// Normalisation target for merges: the first clip's size and frame rate.
+function mergeTarget() {
+  const first = clips[0] || {};
+  return {
+    width: first.width || 1280,
+    height: first.height || 720,
+    fps: Math.min(Math.max(Math.round(first.fps || 30), 1), 60)
+  };
 }
 
 function updatePlayhead() {
@@ -501,12 +686,13 @@ player.addEventListener('ended', () => {
 
 // --- Events ---------------------------------------------------------------
 
-async function openFile() {
-  const file = await window.api.pickInput();
-  if (file) loadFile(file);
+async function openFiles() {
+  const files = await window.api.pickInput();
+  if (files && files.length) addClips(files);
 }
 
-drop.addEventListener('click', openFile);
+drop.addEventListener('click', openFiles);
+addClipBtn.addEventListener('click', openFiles);
 
 ['dragenter', 'dragover'].forEach((ev) =>
   drop.addEventListener(ev, (e) => {
@@ -521,8 +707,18 @@ drop.addEventListener('click', openFile);
   })
 );
 drop.addEventListener('drop', (e) => {
-  const f = e.dataTransfer.files[0];
-  if (f && f.path) loadFile(f.path);
+  const paths = [];
+  for (const f of e.dataTransfer.files) {
+    const p = f.path || window.api.getPathForFile(f);
+    if (p) paths.push(p);
+  }
+  if (paths.length) addClips(paths);
+});
+
+// Load a file passed in when the app was launched from the OS (double-click /
+// "Open with"), or when a second instance forwards one.
+window.api.onOpenFile((filePath) => {
+  if (filePath) addClips([filePath]);
 });
 
 function setStartAtPlayhead() {
@@ -577,37 +773,52 @@ trimBtn.addEventListener('click', runTrim);
 
 async function runTrim() {
   if (trimBtn.disabled) return;
-  if (segments.length === 0) {
+  snapshotActive();
+  if (clips.length === 0) {
+    return showStatus('Add at least one clip first.', true);
+  }
+  const totalSegs = clips.reduce(
+    (nSeg, c) => nSeg + c.segments.filter((s) => s.end > s.start).length,
+    0
+  );
+  if (totalSegs === 0) {
     return showStatus('Add at least one segment first.', true);
   }
   const mode = document.querySelector('input[name="mode"]:checked').value;
 
-  const base = currentInput.replace(/\.[^.\\/]+$/, '');
-  const output = await window.api.pickOutput(base + '_trimmed.mp4');
+  const base = clips[0].path.replace(/\.[^.\\/]+$/, '');
+  const suffix = clips.length > 1 ? '_merged.mp4' : '_trimmed.mp4';
+  const output = await window.api.pickOutput(base + suffix);
   if (!output) return;
 
   if (previewing) stopPreview();
   setBusy(true);
   showStatus(
-    segments.length > 1 ? 'Merging segments…' : 'Trimming…',
+    clips.length > 1 || totalSegs > 1 ? 'Merging…' : 'Trimming…',
     false,
     true
   );
 
   const result = await window.api.exportSegments({
-    input: currentInput,
     output,
     mode,
-    hasAudio,
-    segments: segments.map((s) => ({ start: s.start, end: s.end }))
+    target: mergeTarget(),
+    clips: clips.map((c) => ({
+      input: c.path,
+      hasAudio: c.hasAudio,
+      segments: c.segments.map((s) => ({ start: s.start, end: s.end }))
+    }))
   });
 
   setBusy(false);
 
   if (result.success) {
     statusEl.className = 'status ok';
+    const note = result.reencoded ? ' (re-encoded for compatibility)' : '';
     statusEl.innerHTML =
-      'Done! Saved to ' +
+      'Done!' +
+      note +
+      ' Saved to ' +
       result.output +
       ' <a id="revealLink">Show in folder</a>';
     document.getElementById('revealLink').addEventListener('click', () => {
@@ -622,11 +833,19 @@ gifBtn.addEventListener('click', runGif);
 
 async function runGif() {
   if (gifBtn.disabled) return;
-  if (segments.length === 0) {
+  snapshotActive();
+  if (clips.length === 0) {
+    return showStatus('Add at least one clip first.', true);
+  }
+  const totalSegs = clips.reduce(
+    (nSeg, c) => nSeg + c.segments.filter((s) => s.end > s.start).length,
+    0
+  );
+  if (totalSegs === 0) {
     return showStatus('Add at least one segment first.', true);
   }
 
-  const base = currentInput.replace(/\.[^.\\/]+$/, '');
+  const base = clips[0].path.replace(/\.[^.\\/]+$/, '');
   const output = await window.api.pickOutput(base + '_clip.gif');
   if (!output) return;
 
@@ -634,13 +853,14 @@ async function runGif() {
   setBusy(true);
   showStatus('Creating GIF…', false, true);
 
-  // GIFs are big at high fps/width; cap fps at 15 and width at 480 for size.
   const result = await window.api.exportGif({
-    input: currentInput,
     output,
-    fps: Math.min(fps || 15, 15),
-    width: 480,
-    segments: segments.map((s) => ({ start: s.start, end: s.end }))
+    target: mergeTarget(),
+    clips: clips.map((c) => ({
+      input: c.path,
+      hasAudio: c.hasAudio,
+      segments: c.segments.map((s) => ({ start: s.start, end: s.end }))
+    }))
   });
 
   setBusy(false);
@@ -702,7 +922,7 @@ document.addEventListener('keydown', (e) => {
   // Ctrl+O — open file.
   if (e.ctrlKey && (e.key === 'o' || e.key === 'O')) {
     e.preventDefault();
-    openFile();
+    openFiles();
     return;
   }
   // Ctrl+S — trim & save.
@@ -755,3 +975,81 @@ document.addEventListener('keydown', (e) => {
       break;
   }
 });
+
+// --- Auto-update UI -------------------------------------------------------
+
+const updateBtn = document.getElementById('updateBtn');
+const updateMsg = document.getElementById('updateMsg');
+const appVersion = document.getElementById('appVersion');
+
+let updateState = 'idle';
+let availableVersion = '';
+
+window.api.getVersion().then((v) => {
+  if (v) appVersion.textContent = 'v' + v;
+});
+
+function setUpdateMsg(text, kind) {
+  updateMsg.textContent = text || '';
+  updateMsg.className = 'update-msg' + (kind ? ' ' + kind : '');
+}
+
+function applyUpdateUI() {
+  switch (updateState) {
+    case 'checking':
+      updateBtn.disabled = true;
+      updateBtn.textContent = 'Checking…';
+      setUpdateMsg('');
+      break;
+    case 'available':
+      updateBtn.disabled = false;
+      updateBtn.textContent = 'Download v' + availableVersion;
+      setUpdateMsg('Update available', 'ok');
+      break;
+    case 'downloading':
+      updateBtn.disabled = true;
+      break;
+    case 'downloaded':
+      updateBtn.disabled = false;
+      updateBtn.textContent = 'Restart & install';
+      setUpdateMsg('Ready to install', 'ok');
+      break;
+    case 'up-to-date':
+      updateBtn.disabled = false;
+      updateBtn.textContent = 'Check for updates';
+      setUpdateMsg("You're up to date", 'ok');
+      break;
+    case 'dev':
+      updateBtn.disabled = false;
+      updateBtn.textContent = 'Check for updates';
+      setUpdateMsg('Updates run in the installed app', '');
+      break;
+    case 'error':
+      updateBtn.disabled = false;
+      updateBtn.textContent = 'Check for updates';
+      break;
+    default:
+      updateBtn.disabled = false;
+      updateBtn.textContent = 'Check for updates';
+      setUpdateMsg('');
+  }
+}
+
+updateBtn.addEventListener('click', () => {
+  if (updateState === 'available') window.api.downloadUpdate();
+  else if (updateState === 'downloaded') window.api.installUpdate();
+  else window.api.checkForUpdates();
+});
+
+window.api.onUpdateStatus((data) => {
+  updateState = data.state;
+  if (data.version) availableVersion = data.version;
+  if (data.state === 'downloading') {
+    setUpdateMsg('Downloading… ' + (data.percent || 0) + '%', '');
+  } else if (data.state === 'error') {
+    setUpdateMsg('Update check failed', 'err');
+  }
+  applyUpdateUI();
+});
+
+applyUpdateUI();

@@ -36,13 +36,63 @@ After the build finishes, look in the `dist/` folder:
 
 ```
 dist/
-  Fast Video Trimmer Setup 1.0.0.exe   <- share this file
-  win-unpacked/                        <- portable, unpacked build
+  FastVideoTrimmer-Setup-1.0.0.exe   <- share this file
+  win-unpacked/                      <- portable, unpacked build
 ```
 
-The **`Fast Video Trimmer Setup 1.0.0.exe`** file is the installer to share. When a user runs it, the app is installed and added to the Start menu.
+The **`FastVideoTrimmer-Setup-1.0.0.exe`** file is the installer to share. When a user runs it, the app is installed and added to the Start menu.
+
+> The installer filename is controlled by `artifactName` in `package.json` (`FastVideoTrimmer-Setup-${version}.${ext}`).
 
 > The version number in the filename comes from the `version` field in `package.json`.
+
+## Releases & auto-update
+
+The app ships with an in-app updater (`electron-updater`) that reads GitHub
+Releases. Alongside the installer, `electron-builder` publishes a `latest.yml`
+and a `.blockmap`; the running app compares its version against `latest.yml` to
+detect updates.
+
+### Cut a release (recommended)
+
+Run the release helper with an optional bump type. It bumps the version, creates
+the git tag, and pushes it — which triggers the GitHub Actions workflow that
+builds and publishes the installer:
+
+```powershell
+./release.ps1            # patch bump (1.0.0 -> 1.0.1)
+./release.ps1 minor      # feature release (1.0.0 -> 1.1.0)
+./release.ps1 major      # breaking release (1.0.0 -> 2.0.0)
+```
+
+Under the hood this is just `npm version <bump>` + `git push --follow-tags`.
+The workflow ([.github/workflows/release.yml](.github/workflows/release.yml))
+runs `npm ci` and `npm run publish` on a Windows runner using the built-in
+`GITHUB_TOKEN`, then attaches the installer, `latest.yml` and `.blockmap` to the
+matching GitHub Release. No secrets to configure.
+
+### Publish manually (fallback)
+
+To build and upload from your own machine instead of via CI, bump the version,
+set a GitHub token, and run the publish script directly:
+
+```powershell
+npm version patch                 # or edit "version" in package.json
+$env:GH_TOKEN = "ghp_yourtoken"   # a token with repo access
+npm run publish
+```
+
+> Keep tokens out of source control — never commit them (`.gh-token` and `.env` are gitignored).
+
+### How users get it
+
+- **First install:** download the `.exe` from the
+  [Releases page](https://github.com/Travis-R-Ristow/simple-video-trimmer/releases/latest).
+- **Updates:** the app checks on launch and via the **Check for updates** button;
+  users download the update and click **Restart & install**.
+
+> Auto-update only runs in a packaged/installed build. In `npm start` the updater
+> reports "Updates run in the installed app" and takes no action.
 
 ## Build configuration reference
 
